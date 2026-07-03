@@ -7,6 +7,8 @@ where 0 = confidently human-written and 1 = confidently AI-generated.
 
 import os
 import json
+import re
+import statistics
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -64,6 +66,75 @@ def signal_1_llm_judge(text: str) -> dict:
         return {"score": 0.5, "reasoning": f"signal_1_failed: {e}"}
 
 
+def _split_sentences(text: str) -> list:
+    """Naive sentence splitter on . ! ? -- good enough for stylometrics, not linguistics."""
+    sentences = re.split(r"[.!?]+", text)
+    return [s.strip() for s in sentences if s.strip()]
+
+
+def _sentence_length_variance_score(text: str) -> float:
+    """
+    Computes variance in sentence length (words per sentence), then maps it
+    to a 0-1 score where LOW variance -> HIGH score (AI-like: uniform
+    sentence structure) and HIGH variance -> LOW score (human-like: bursty,
+    irregular sentence lengths).
+
+    Normalization assumption: a stdev of 0 words maps to 1.0 (max AI-like),
+    a stdev of 8+ words maps to 0.0 (max human-like). 8 was picked as a
+    rough ceiling based on eyeballing the test inputs below -- documented
+    here as an assumption to revisit if real submissions skew the range.
+    """
+    sentences = _split_sentences(text)
+    if len(sentences) < 2:
+        # Can't compute variance from a single sentence; return neutral.
+        return 0.5
+
+    lengths = [len(s.split()) for s in sentences]
+    stdev = statistics.stdev(lengths)
+
+    MAX_STDEV_CEILING = 8.0
+    normalized = 1.0 - min(stdev / MAX_STDEV_CEILING, 1.0)
+    return normalized
+
+
+def _type_token_ratio_score(text: str) -> float:
+    """
+    Computes type-token ratio (unique words / total words), then maps it to
+    a 0-1 AI-likeness score where LOW diversity -> HIGH score (AI-like) and
+    HIGH diversity -> LOW score (human-like).
+
+    Known limitation (documented in planning.md edge cases): TTR is noisy
+    on short text (under ~100 words), since a handful of unique words in a
+    short sample produces an unreliable ratio either direction.
+    """
+    words = re.findall(r"[a-zA-Z']+", text.lower())
+    if len(words) < 5:
+        return 0.5  # not enough text to say anything meaningful
+
+    ttr = len(set(words)) / len(words)
+    # ttr is already 0-1; invert it so low diversity -> high AI-likeness score
+    return 1.0 - ttr
+
+
+def signal_2_stylometric(text: str) -> dict:
+    """
+    Computes a stylometric AI-likeness score from sentence length variance
+    and type-token ratio, no external API call.
+
+    Returns a dict: {"score": float, "reasoning": str}
+    """
+    variance_score = _sentence_length_variance_score(text)
+    ttr_score = _type_token_ratio_score(text)
+    combined = (variance_score + ttr_score) / 2
+    combined = max(0.0, min(1.0, combined))
+
+    reasoning = (
+        f"sentence-length-uniformity={variance_score:.2f}, "
+        f"low-vocabulary-diversity={ttr_score:.2f}"
+    )
+    return {"score": combined, "reasoning": reasoning}
+
+
 if __name__ == "__main__":
     # Quick standalone test. Run: python signals.py
     test_inputs = [
@@ -80,8 +151,26 @@ if __name__ == "__main__":
             "i was thirsty for like three hours after. my friend got the spicy version and "
             "said it was better. probably won't go back unless someone drags me there"
         )),
+        ("borderline_formal_human", (
+            "The relationship between monetary policy and asset price inflation has been "
+            "extensively studied in the literature. Central banks face a fundamental tension "
+            "between their mandate for price stability and the unintended consequences of "
+            "prolonged low interest rates on equity and real estate valuations."
+        )),
+        ("borderline_edited_ai", (
+            "I've been thinking a lot about remote work lately. There are genuine tradeoffs "
+            "-- flexibility and no commute on one side, isolation and blurred work-life "
+            "boundaries on the other. Studies show productivity varies widely by individual "
+            "and role type."
+        )),
     ]
 
+    print("=== Signal 1 (LLM judge) ===")
     for label, text in test_inputs:
         result = signal_1_llm_judge(text)
+        print(f"{label}: score={result['score']:.2f} | {result['reasoning']}")
+
+    print("\n=== Signal 2 (stylometric) ===")
+    for label, text in test_inputs:
+        result = signal_2_stylometric(text)
         print(f"{label}: score={result['score']:.2f} | {result['reasoning']}")

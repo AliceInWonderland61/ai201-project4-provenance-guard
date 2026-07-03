@@ -9,8 +9,8 @@ This one checks for the patterns that make AI text sound like AI text. Stuff lik
 This one is just math, no API call. I measure sentence length variance and type-token ratio (basically how diverse the vocabulary is), normalize each to 0-1, and average them into one score. Low variance and low diversity trend toward 1 (AI-like). High variance and high diversity trend toward 0 (human-like).
 
 **Combining into confidence score**
-`confidence = (0.5 * signal_1_score) + (0.5 * signal_2_score)`
-I'm starting with equal weighting since I don't have any evidence yet that one signal is more trustworthy than the other. This is an assumption I'll revisit once I actually test it in Milestone 4.
+`confidence = (0.7 * signal_1_score) + (0.3 * signal_2_score)`
+Originally started at 0.5/0.5 with no evidence either signal was more reliable. Once I actually tested it (Milestone 4), Signal 2's type-token-ratio component turned out to be unreliable on short text (see Edge Case #2 below) and was dragging combined scores toward "human" even when Signal 1 was confidently right. Reweighted to trust Signal 1 more. Even at 0.7/0.3, a clearly-AI test case (signal_1=0.90, signal_2=0.14) lands at confidence=0.67, just under the 0.7 "likely_ai" threshold, landing in "uncertain" instead. I'm leaving this as-is rather than tuning weights further to force one test case over a line. It's a real limitation of Signal 2 on short text, documented honestly rather than hidden.
 
 ## Uncertainty Representation
 

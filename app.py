@@ -9,7 +9,8 @@ Labels get their final text in Milestone 5.
 import uuid
 from flask import Flask, request, jsonify
 
-from signals import signal_1_llm_judge
+from signals import signal_1_llm_judge, signal_2_stylometric
+from scoring import combine_confidence, attribution_from_confidence
 from storage import log_submission, log_appeal, get_log, get_entry
 
 app = Flask(__name__)
@@ -29,16 +30,17 @@ def submit():
 
     content_id = str(uuid.uuid4())
 
-    # Signal 1 only for now
+    # Both signals now, combined per planning.md scoring spec
     signal_1_result = signal_1_llm_judge(text)
     signal_1_score = signal_1_result["score"]
 
-    # Placeholders until Milestone 4 wires in Signal 2 and real combined scoring
-    signal_2_score = None
-    confidence = signal_1_score  # temporary stand-in
-    attribution = "likely_ai" if signal_1_score >= 0.7 else (
-        "uncertain" if signal_1_score >= 0.4 else "likely_human"
-    )
+    signal_2_result = signal_2_stylometric(text)
+    signal_2_score = signal_2_result["score"]
+
+    confidence = combine_confidence(signal_1_score, signal_2_score)
+    attribution = attribution_from_confidence(confidence)
+
+    # Label text still placeholder until Milestone 5
     label = "placeholder label - real label text lands in Milestone 5"
 
     log_submission(
