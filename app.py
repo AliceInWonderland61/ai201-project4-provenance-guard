@@ -1,22 +1,34 @@
 """
 Provenance Guard - Flask app.
 
-Milestone 3 scope: /submit wired to Signal 1 only, with a placeholder
-confidence score and label. Signal 2 and real scoring land in Milestone 4.
-Labels get their final text in Milestone 5.
+Milestone 5 scope: real transparency labels, rate limiting on /submit,
+and the finalized /appeal endpoint. Full production layer.
 """
 
 import uuid
 from flask import Flask, request, jsonify
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from signals import signal_1_llm_judge, signal_2_stylometric
-from scoring import combine_confidence, attribution_from_confidence
+from scoring import combine_confidence, attribution_from_confidence, label_from_attribution
 from storage import log_submission, log_appeal, get_log, get_entry
 
 app = Flask(__name__)
 
+# Rate limiting: 10/minute covers a writer submitting a handful of drafts in
+# one sitting with room to spare; 100/day stops a script from flooding the
+# endpoint while still allowing a heavy user well beyond normal usage.
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
+
 
 @app.route("/submit", methods=["POST"])
+@limiter.limit("10 per minute;100 per day")
 def submit():
     data = request.get_json(silent=True)
     if not data or "text" not in data or "creator_id" not in data:
@@ -30,7 +42,6 @@ def submit():
 
     content_id = str(uuid.uuid4())
 
-    # Both signals now, combined per planning.md scoring spec
     signal_1_result = signal_1_llm_judge(text)
     signal_1_score = signal_1_result["score"]
 
@@ -39,9 +50,7 @@ def submit():
 
     confidence = combine_confidence(signal_1_score, signal_2_score)
     attribution = attribution_from_confidence(confidence)
-
-    # Label text still placeholder until Milestone 5
-    label = "placeholder label - real label text lands in Milestone 5"
+    label = label_from_attribution(attribution)
 
     log_submission(
         content_id=content_id,
@@ -70,9 +79,9 @@ def log():
 @app.route("/appeal", methods=["POST"])
 def appeal():
     """
-    Stub for Milestone 5. Wired up early here so /log and content_id flow
-    can be sanity-checked end to end, but the real appeals workflow (with
-    validation and proper response shape) gets built out in Milestone 5.
+    Accepts an appeal from a creator disputing their content's classification.
+    Updates the content's status to under_review and appends the creator's
+    reasoning to the original audit log entry. No automated re-classification.
     """
     data = request.get_json(silent=True)
     if not data or "content_id" not in data or "creator_reasoning" not in data:

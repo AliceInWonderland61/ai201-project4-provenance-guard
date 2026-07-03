@@ -29,8 +29,34 @@ def attribution_from_confidence(confidence: float) -> str:
         return "likely_human"
 
 
+# Exact label text from planning.md's Transparency Label Design section.
+# These are final copy, not placeholders -- keep in sync with planning.md
+# if either changes.
+LABEL_TEXT = {
+    "likely_ai": (
+        "This content shows strong indicators of AI generation. Our detection "
+        "signals consistently identified patterns associated with AI-written text."
+    ),
+    "uncertain": (
+        "This content shows some patterns associated with AI generation, but "
+        "our confidence is not high enough for a definitive classification."
+    ),
+    "likely_human": (
+        "This content shows patterns consistent with human authorship. Our "
+        "detection signals did not identify strong indicators of AI generation."
+    ),
+}
+
+
+def label_from_attribution(attribution: str) -> str:
+    """Maps an attribution category to its exact transparency label text."""
+    return LABEL_TEXT.get(attribution, "Unable to generate a label for this classification.")
+
+
 if __name__ == "__main__":
-    # Quick sanity check on the threshold boundaries themselves.
+    # Quick sanity check on the threshold boundaries and label text.
     test_cases = [0.0, 0.39, 0.4, 0.6, 0.69, 0.7, 1.0]
     for score in test_cases:
-        print(f"confidence={score:.2f} -> {attribution_from_confidence(score)}")
+        attribution = attribution_from_confidence(score)
+        label = label_from_attribution(attribution)
+        print(f"confidence={score:.2f} -> {attribution} -> {label}")
